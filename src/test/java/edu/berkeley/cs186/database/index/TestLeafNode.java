@@ -1,10 +1,7 @@
 package edu.berkeley.cs186.database.index;
 
 import edu.berkeley.cs186.database.TimeoutScaling;
-import edu.berkeley.cs186.database.categories.HiddenTests;
-import edu.berkeley.cs186.database.categories.Proj2Tests;
-import edu.berkeley.cs186.database.categories.PublicTests;
-import edu.berkeley.cs186.database.categories.SystemTests;
+import edu.berkeley.cs186.database.categories.*;
 import edu.berkeley.cs186.database.common.Pair;
 import edu.berkeley.cs186.database.concurrency.DummyLockContext;
 import edu.berkeley.cs186.database.concurrency.LockContext;
@@ -128,6 +125,67 @@ public class TestLeafNode {
     }
 
     @Test
+    @Category(StudentTests.class)
+    public void testFullyBulkLoad() {
+        int d = 5;
+        float fillFactor = 0.8f;
+        setBPlusTreeMetadata(Type.intType(), d);
+        LeafNode leaf = getEmptyLeaf(Optional.empty());
+
+        List<Pair<DataBox, RecordId>> data = new ArrayList<>();
+        for (int i = 0; i < (int) Math.ceil(2 * d * fillFactor); ++i) {
+            DataBox key = new IntDataBox(i);
+            RecordId rid = new RecordId(i, (short) i);
+            data.add(i, new Pair<>(key, rid));
+        }
+
+        assertFalse(leaf.bulkLoad(data.iterator(), fillFactor).isPresent());
+
+        Iterator<RecordId> iter = leaf.scanAll();
+        Iterator<Pair<DataBox, RecordId>> expected = data.iterator();
+        while (iter.hasNext() && expected.hasNext()) {
+            assertEquals(expected.next().getSecond(), iter.next());
+        }
+        assertFalse(iter.hasNext());
+        assertFalse(expected.hasNext());
+    }
+
+    @Test
+    @Category(StudentTests.class)
+    public void testFullyBulkLoadWithOverflow() {
+        int d = 5;
+        float fillFactor = 0.8f;
+        setBPlusTreeMetadata(Type.intType(), d);
+        LeafNode leaf = getEmptyLeaf(Optional.empty());
+
+        List<Pair<DataBox, RecordId>> data = new ArrayList<>();
+        for (int i = 0; i < (int) Math.ceil(2 * d * fillFactor) + 1; ++i) {
+            DataBox key = new IntDataBox(i);
+            RecordId rid = new RecordId(i, (short) i);
+            data.add(i, new Pair<>(key, rid));
+        }
+
+        Optional<Pair<DataBox, Long>> overflow = leaf.bulkLoad(data.iterator(), fillFactor);
+
+        assertTrue(overflow.isPresent());
+        assertEquals(overflow.get().getFirst().getInt(), ((int) (Math.ceil(2 * d * fillFactor))));
+
+        Iterator<RecordId> iter = LeafNode.fromBytes(metadata, bufferManager, treeContext, leaf.getPage().getPageNum()).scanAll();
+        Iterator<Pair<DataBox, RecordId>> expected = data.iterator();
+        while (iter.hasNext()) {
+            assertTrue(expected.hasNext());
+            assertEquals(expected.next().getSecond(), iter.next());
+        }
+
+        Iterator<RecordId> newNodeIterator = LeafNode.fromBytes(metadata, bufferManager, treeContext, overflow.get().getSecond()).scanAll();
+        assertTrue(expected.hasNext());
+        assertEquals(expected.next().getSecond(), newNodeIterator.next());
+
+        assertFalse(expected.hasNext());
+        assertFalse(newNodeIterator.hasNext());
+    }
+
+    @Test
     @Category(PublicTests.class)
     public void testNoOverflowPuts() {
         int d = 5;
@@ -173,6 +231,106 @@ public class TestLeafNode {
             IntDataBox key = new IntDataBox(i);
             RecordId rid = new RecordId(i, (short) i);
             assertEquals(Optional.of(rid), fromDisk.getKey(key));
+        }
+    }
+
+    @Test
+    @Category(StudentTests.class)
+    public void testOverflowPut() {
+        int d = 5;
+        setBPlusTreeMetadata(Type.intType(), d);
+
+        for(int j = 0; j < 2 * d + 1; j++) {
+            LeafNode leaf = getEmptyLeaf(Optional.empty());
+            for (int i = 0; i < 2 * d + 1; ++i) {
+                if(i == j) { // This is the overflow so do not insert it
+                    continue;
+                }
+                DataBox key = new IntDataBox(i);
+                RecordId rid = new RecordId(i, (short) i);
+                // Leaf should never overflow during the first 2d puts
+                leaf.put(key, rid);
+            }
+
+            // Leaf should overflow in the 2d + 1 put
+            DataBox ofKey = new IntDataBox(j);
+            RecordId ofRid = new RecordId(j, (short) (j));
+
+            Optional<Pair<DataBox, Long>> overflow = leaf.put(ofKey, ofRid);
+            assertTrue(overflow.isPresent());
+
+            assertEquals(overflow.get().getFirst().getInt(), d);
+            LeafNode newNode = LeafNode.fromBytes(metadata, bufferManager, treeContext, overflow.get().getSecond());
+
+            assertEquals(leaf.getRightSibling().get().getPage().getPageNum(), overflow.get().getSecond().longValue());
+
+            assertEquals(leaf.getKeys().size(), d);
+            assertEquals(leaf.getRids().size(), d);
+            for (int i = 0; i < d; ++i) {
+                IntDataBox key = new IntDataBox(i);
+                RecordId rid = new RecordId(i, (short) i);
+                assertEquals(Optional.of(rid), leaf.getKey(key));
+            }
+
+            assertEquals(newNode.getKeys().size(), d + 1);
+            assertEquals(newNode.getRids().size(), d + 1);
+            for (int i = d; i < 2 * d + 1; ++i) {
+                IntDataBox key = new IntDataBox(i);
+                RecordId rid = new RecordId(i, (short) i);
+                assertEquals(Optional.of(rid), newNode.getKey(key));
+            }
+
+        }
+    }
+
+    @Test
+    @Category(StudentTests.class)
+    public void testOverflowPutFromDisk() {
+        int d = 5;
+        setBPlusTreeMetadata(Type.intType(), d);
+
+        for(int j = 0; j < 2 * d + 1; j++) {
+            LeafNode leaf = getEmptyLeaf(Optional.empty());
+            for (int i = 0; i < 2 * d + 1; ++i) {
+                if(i == j) { // This is the overflow so do not insert it
+                    continue;
+                }
+                DataBox key = new IntDataBox(i);
+                RecordId rid = new RecordId(i, (short) i);
+                // Leaf should never overflow during the first 2d puts
+                leaf.put(key, rid);
+            }
+
+            // Leaf should overflow in the 2d + 1 put
+            DataBox ofKey = new IntDataBox(j);
+            RecordId ofRid = new RecordId(j, (short) (j));
+
+            Optional<Pair<DataBox, Long>> overflow = leaf.put(ofKey, ofRid);
+            LeafNode fromDiskLeafNode = LeafNode.fromBytes(metadata, bufferManager, treeContext, leaf.getPage().getPageNum());
+
+            assertTrue(overflow.isPresent());
+
+            assertEquals(overflow.get().getFirst().getInt(), d);
+            LeafNode newNode = LeafNode.fromBytes(metadata, bufferManager, treeContext, overflow.get().getSecond());
+
+            assertEquals(fromDiskLeafNode.getRightSibling().get().getPage().getPageNum(), overflow.get().getSecond().longValue());
+
+            assertEquals(fromDiskLeafNode.getKeys().size(), d);
+            assertEquals(fromDiskLeafNode.getRids().size(), d);
+            for (int i = 0; i < d; ++i) {
+                IntDataBox key = new IntDataBox(i);
+                RecordId rid = new RecordId(i, (short) i);
+                assertEquals(Optional.of(rid), fromDiskLeafNode.getKey(key));
+            }
+
+            assertEquals(newNode.getKeys().size(), d + 1);
+            assertEquals(newNode.getRids().size(), d + 1);
+            for (int i = d; i < 2 * d + 1; ++i) {
+                IntDataBox key = new IntDataBox(i);
+                RecordId rid = new RecordId(i, (short) i);
+                assertEquals(Optional.of(rid), newNode.getKey(key));
+            }
+
         }
     }
 

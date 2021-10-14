@@ -1,10 +1,7 @@
 package edu.berkeley.cs186.database.index;
 
 import edu.berkeley.cs186.database.TimeoutScaling;
-import edu.berkeley.cs186.database.categories.HiddenTests;
-import edu.berkeley.cs186.database.categories.Proj2Tests;
-import edu.berkeley.cs186.database.categories.PublicTests;
-import edu.berkeley.cs186.database.categories.SystemTests;
+import edu.berkeley.cs186.database.categories.*;
 import edu.berkeley.cs186.database.common.Pair;
 import edu.berkeley.cs186.database.concurrency.DummyLockContext;
 import edu.berkeley.cs186.database.concurrency.LockContext;
@@ -144,6 +141,38 @@ public class TestBPlusTree {
         String leaf2 = "((7 (7 7)) (8 (8 8)) (9 (9 9)))";
         String leaf3 = "((10 (10 10)) (11 (11 11)))";
         String sexp = String.format("(%s 4 %s 7 %s 10 %s)", leaf0, leaf1, leaf2, leaf3);
+        assertEquals(sexp, tree.toSexp());
+    }
+
+    @Test
+    @Category(PublicTests.class)
+    public void testBulkLoadWithMultipleInnerNodeSplit() {
+        // Creates a B+ Tree with order 2, fillFactor 0.75 and attempts to bulk
+        // load 11 values.
+
+        BPlusTree tree = getBPlusTree(Type.intType(), 2);
+        float fillFactor = 0.75f;
+        assertEquals("()", tree.toSexp());
+
+        List<Pair<DataBox, RecordId>> data = new ArrayList<>();
+        for (int i = 1; i <= 16; ++i) {
+            data.add(new Pair<>(new IntDataBox(i), new RecordId(i, (short) i)));
+        }
+
+        tree.bulkLoad(data.iterator(), fillFactor);
+
+        String leaf0 = "((1 (1 1)) (2 (2 2)) (3 (3 3)))";
+        String leaf1 = "((4 (4 4)) (5 (5 5)) (6 (6 6)))";
+        String leaf2 = "((7 (7 7)) (8 (8 8)) (9 (9 9)))";
+        String leaf3 = "((10 (10 10)) (11 (11 11)) (12 (12 12)))";
+        String leaf4 = "((13 (13 13)) (14 (14 14)) (15 (15 15)))";
+        String leaf5 = "((16 (16 16)))";
+
+
+        String inner1 = String.format("(%s 4 %s 7 %s)", leaf0, leaf1, leaf2);
+        String inner2 = String.format("(%s 13 %s 16 %s)", leaf3, leaf4, leaf5);
+        String sexp = String.format("(%s 10 %s)", inner1, inner2);
+        System.out.println(tree.toDot());
         assertEquals(sexp, tree.toSexp());
     }
 
@@ -470,6 +499,12 @@ public class TestBPlusTree {
         }
     }
 
+    @Test
+    @Category(StudentTests.class)
+    public void testIteratorForEmptyTree() {
+        BPlusTree tree = getBPlusTree(Type.intType(), 2);
+        assertFalse(tree.scanAll().hasNext());
+    }
     @Test
     @Category(SystemTests.class)
     public void testMaxOrder() {

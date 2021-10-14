@@ -80,43 +80,102 @@ class InnerNode extends BPlusNode {
     // See BPlusNode.get.
     @Override
     public LeafNode get(DataBox key) {
-        // TODO(proj2): implement
-
-        return null;
+        int i = numLessThanEqual(key, keys);
+        return BPlusNode.fromBytes(this.metadata, this.bufferManager, this.treeContext, children.get(i)).get(key);
     }
 
     // See BPlusNode.getLeftmostLeaf.
     @Override
     public LeafNode getLeftmostLeaf() {
         assert(children.size() > 0);
-        // TODO(proj2): implement
+        BPlusNode node = BPlusNode.fromBytes(this.metadata, this.bufferManager, this.treeContext, children.get(0));
 
-        return null;
+
+        while(node instanceof InnerNode) {
+            assert(children.size() > 0);
+            node = BPlusNode.fromBytes(this.metadata, this.bufferManager, this.treeContext, ((InnerNode) node).getChildren().get(0));
+        }
+        assert (node instanceof LeafNode);
+        return ((LeafNode) node);
     }
 
     // See BPlusNode.put.
     @Override
     public Optional<Pair<DataBox, Long>> put(DataBox key, RecordId rid) {
-        // TODO(proj2): implement
+        assert (keys.size() <=  this.metadata.getOrder() * 2);
+        Optional<Pair<DataBox, Long>> result = Optional.empty();
 
-        return Optional.empty();
+        int i = numLessThanEqual(key, keys);
+        BPlusNode node = BPlusNode.fromBytes(this.metadata, this.bufferManager, this.treeContext, children.get(i));
+        Optional<Pair<DataBox, Long>> overflow = node.put(key, rid);
+        if(overflow.isPresent()) {
+            int overflowIdx = numLessThanEqual(overflow.get().getFirst(), keys);
+
+            keys.add(overflowIdx, overflow.get().getFirst());
+            children.add(overflowIdx + 1, overflow.get().getSecond());
+
+            if(keys.size() == (this.metadata.getOrder() * 2) + 1) {
+                result = Optional.of(handleSplit());
+            }
+        }
+        this.sync();
+        return result;
     }
 
+    private Pair<DataBox, Long> handleSplit() {
+        int splitIndex = this.metadata.getOrder();
+        DataBox splitKey = keys.get(splitIndex);
+
+        List<DataBox> rightNodeKeys = new ArrayList<>(keys.subList(splitIndex + 1, keys.size()));
+        List<Long> rightNodeChildren = new ArrayList<>(children.subList(splitIndex + 1, children.size()));
+
+        InnerNode rightNode = new InnerNode(metadata, bufferManager, rightNodeKeys, rightNodeChildren, treeContext);
+
+        List<DataBox> leftNodeKeys = new ArrayList<>(keys.subList(0, splitIndex));
+        List<Long> leftNodeChildren = new ArrayList<>(children.subList(0, splitIndex + 1));
+
+        this.keys = leftNodeKeys;
+        this.children = leftNodeChildren;
+
+        return new Pair<>(splitKey, rightNode.getPage().getPageNum());
+    }
     // See BPlusNode.bulkLoad.
     @Override
     public Optional<Pair<DataBox, Long>> bulkLoad(Iterator<Pair<DataBox, RecordId>> data,
             float fillFactor) {
-        // TODO(proj2): implement
+        assert (keys.size() <=  this.metadata.getOrder() * 2);
+        Optional<Pair<DataBox, Long>> result = Optional.empty();
 
-        return Optional.empty();
+        Optional<Pair<DataBox, Long>> overflow = Optional.empty();
+        while(data.hasNext() && keys.size() <= this.metadata.getOrder() * 2) {
+            BPlusNode node = BPlusNode.fromBytes(this.metadata, this.bufferManager, this.treeContext, children.get(children.size() - 1));
+            overflow = node.bulkLoad(data, fillFactor);
+
+            if(overflow.isPresent()) {
+                if(overflow.get().getFirst().getInt() == 13){
+                    int a = 4;
+                }
+                keys.add(overflow.get().getFirst());
+                children.add(overflow.get().getSecond());
+            }
+        }
+
+        if(overflow.isPresent()) {
+            if(data.hasNext()) {
+                this.keys.add(overflow.get().getFirst());
+                this.children.add(overflow.get().getSecond());
+            }
+
+            result = Optional.of(handleSplit());
+        }
+        sync();
+        return result;
     }
 
     // See BPlusNode.remove.
     @Override
     public void remove(DataBox key) {
-        // TODO(proj2): implement
-
-        return;
+        get(key).remove(key);
     }
 
     // Helpers /////////////////////////////////////////////////////////////////

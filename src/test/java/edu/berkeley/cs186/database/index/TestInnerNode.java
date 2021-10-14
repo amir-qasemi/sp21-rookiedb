@@ -1,10 +1,7 @@
 package edu.berkeley.cs186.database.index;
 
 import edu.berkeley.cs186.database.TimeoutScaling;
-import edu.berkeley.cs186.database.categories.HiddenTests;
-import edu.berkeley.cs186.database.categories.Proj2Tests;
-import edu.berkeley.cs186.database.categories.PublicTests;
-import edu.berkeley.cs186.database.categories.SystemTests;
+import edu.berkeley.cs186.database.categories.*;
 import edu.berkeley.cs186.database.common.Pair;
 import edu.berkeley.cs186.database.concurrency.DummyLockContext;
 import edu.berkeley.cs186.database.concurrency.LockContext;
@@ -230,6 +227,78 @@ public class TestInnerNode {
     public void testGetLeftmostLeaf() {
         assertNotNull(getLeaf(leaf0));
         assertEquals(getLeaf(leaf0), inner.getLeftmostLeaf());
+    }
+
+    @Test
+    @Category(StudentTests.class)
+    public void testGetLeftmostLeafWithMoreThan2InnerNodesInTraversal() {
+        DiskSpaceManager diskSpaceManager = new MemoryDiskSpaceManager();
+        diskSpaceManager.allocPart(0);
+        BufferManager bufferManager = new BufferManager(diskSpaceManager, new DummyRecoveryManager(), 1024,
+                new ClockEvictionPolicy());
+        LockContext treeContext = new DummyLockContext();
+        BPlusTreeMetadata metadata = new BPlusTreeMetadata("test", "col", Type.intType(), 1,
+                0, DiskSpaceManager.INVALID_PAGE_NUM, -1);
+
+        // Leaf 4
+        List<DataBox> keys = new ArrayList<>();
+        List<RecordId> rids = new ArrayList<>();
+
+        keys.add(new IntDataBox(8));
+        keys.add(new IntDataBox(9));
+        rids.add(new RecordId(8, (short) 8));
+        rids.add(new RecordId(9, (short) 9));
+        LeafNode leaf4 = new LeafNode(metadata, bufferManager, keys, rids, Optional.empty(), treeContext);
+
+        keys = new ArrayList<>();
+        rids = new ArrayList<>();
+        keys.add(new IntDataBox(7));
+        rids.add(new RecordId(7, (short) 7));
+        LeafNode leaf3 = new LeafNode(metadata, bufferManager, keys, rids, Optional.of(leaf4.getPage().getPageNum()), treeContext);
+
+
+        keys = new ArrayList<>();
+        rids = new ArrayList<>();
+        keys.add(new IntDataBox(6));
+        rids.add(new RecordId(6, (short) 6));
+        LeafNode leaf2 = new LeafNode(metadata, bufferManager, keys, rids, Optional.of(leaf3.getPage().getPageNum()), treeContext);
+
+
+        keys = new ArrayList<>();
+        rids = new ArrayList<>();
+        keys.add(new IntDataBox(2));
+        keys.add(new IntDataBox(4));
+        rids.add(new RecordId(2, (short) 2));
+        rids.add(new RecordId(4, (short) 4));
+        LeafNode leaf1 = new LeafNode(metadata, bufferManager, keys, rids, Optional.of(leaf2.getPage().getPageNum()), treeContext);
+
+        // Inner node 2
+        List<DataBox> innerKeys = new ArrayList<>();
+        List<Long> innerChildren = new ArrayList<>();
+        innerKeys.add(new IntDataBox(8));
+        innerChildren.add(leaf3.getPage().getPageNum());
+        innerChildren.add(leaf4.getPage().getPageNum());
+        InnerNode innerNode2 = new InnerNode(metadata, bufferManager, innerKeys, innerChildren, treeContext);
+
+        // Inner node 1
+        innerKeys = new ArrayList<>();
+        innerChildren = new ArrayList<>();
+        innerKeys.add(new IntDataBox(6));
+        innerChildren.add(leaf1.getPage().getPageNum());
+        innerChildren.add(leaf2.getPage().getPageNum());
+        InnerNode innerNode1 = new InnerNode(metadata, bufferManager, innerKeys, innerChildren, treeContext);
+
+        // root
+        innerKeys = new ArrayList<>();
+        innerChildren = new ArrayList<>();
+        innerKeys.add(new IntDataBox(7));
+        innerChildren.add(innerNode1.getPage().getPageNum());
+        innerChildren.add(innerNode2.getPage().getPageNum());
+        InnerNode root = new InnerNode(metadata, bufferManager, innerKeys, innerChildren, treeContext);
+
+        assertNotNull(LeafNode.fromBytes(metadata, bufferManager, treeContext, leaf1.getPage().getPageNum()));
+        assertEquals(LeafNode.fromBytes(metadata, bufferManager, treeContext, leaf1.getPage().getPageNum()), root.getLeftmostLeaf());
+
     }
 
     @Test
